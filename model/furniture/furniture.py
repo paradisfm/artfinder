@@ -2,34 +2,25 @@ import keras
 import cm
 import tensorflow as tf
 from keras import layers
+from keras.layers import Conv2D, GlobalMaxPooling2D, Activation, MaxPooling2D, Dropout, Flatten, Dense
 from keras.applications import VGG16
 import matplotlib.pyplot as plt
 
 tf.experimental.numpy.experimental_enable_numpy_behavior()
 tf.compat.v1.enable_eager_execution()
 
-batch_size = 32
-img_h = 180
-img_w = 180
-img_size = (img_h, img_w)
-epochs = 50
-classes = ["bedframe", "chair", "coffee_tables", "desks", "dining_tables", "dressers", "lamps", "nightstand", "ottoman", "plants", "shelves", "sofas"]
+batch_size = 256
+img_h = 256
+img_w = 256
+epochs = 15
+classes = ["bedframe", "chair", "coffee_tables", "desks", "dining_tables", "dressers", "lamps", "nightstand", "ottoman", "shelves", "sofas"]
 
-train_ds = keras.utils.image_dataset_from_directory(
-    directory="model/data",
+train_ds, val_ds = keras.utils.image_dataset_from_directory(
+    directory=r"data",
     validation_split=0.2,
-    subset="training",
+    subset="both",
     seed=123,
-    image_size=img_size,
-    batch_size=batch_size,
-)
-
-val_ds = keras.utils.image_dataset_from_directory(
-    directory="model/data",
-    validation_split=0.2,
-    subset="validation",
-    seed=123,
-    image_size=img_size,
+    image_size=(img_h, img_w),
     batch_size=batch_size,
 )
 
@@ -48,7 +39,7 @@ AUTOTUNE = tf.data.AUTOTUNE
 
 def preprocess_data(image, label): 
     image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize(image, img_size) 
+    image = tf.image.resize(image, (img_h, img_w)) 
     return image, label
 
 train_ds = train_ds.map(preprocess_data, num_parallel_calls=AUTOTUNE)
@@ -63,10 +54,24 @@ base_model.trainable = False
 
 model = keras.Sequential([
     base_model,
-    layers.GlobalAveragePooling2D(),
-    layers.Dense(256, activation='relu', kernel_regularizer=keras.regularizers.l2(0.001)),
-    layers.Dropout(0.5),
-    layers.Dense(num_classes, activation='softmax', kernel_regularizer=keras.regularizers.l2(0.001))
+    Conv2D(32, kernel_size=(3, 3), padding='same'),
+    Activation('relu'),
+    Conv2D(32, kernel_size=(3, 3)),
+    Activation('relu'),
+    MaxPooling2D(pool_size=(2,2)),
+    Dropout(0.25),
+
+    Conv2D(64, kernel_size=(3, 3), padding='same'),
+    Activation('relu'),
+    Conv2D(64,kernel_size=(3, 3)),
+    Activation('relu'),
+    GlobalMaxPooling2D(),
+    Dropout(0.25),
+
+    Flatten(),
+    Dense(256, kernel_regularizer=keras.regularizers.l2(0.001)),
+    Dropout(0.5),
+    Dense(num_classes, kernel_regularizer=keras.regularizers.l2(0.001))
 ])
 
 early_stopping = keras.callbacks.EarlyStopping(
@@ -77,18 +82,26 @@ early_stopping = keras.callbacks.EarlyStopping(
 
 for images, labels in train_ds.take(batch_size):
     sample_images = images.numpy()
-    samble_labels = labels.numpy()
+    sample_labels = labels.numpy()
 
 w = tf.summary.create_file_writer('logs')
 
 tb_callback = keras.callbacks.TensorBoard('./logs', update_freq=1)
-cm_callback = keras.callbacks.LambdaCallback(on_epoch_end=cm.log_confusion_matrix(0, model, sample_images, samble_labels, classes, w)) 
+cm_callback = keras.callbacks.LambdaCallback(on_epoch_end=cm.log_confusion_matrix(epochs, model, sample_images, sample_labels, classes, w)) 
 
-#with w.as_default():
-#    tf.summary.image("training data examples", sample_images[:25], max_outputs=batch_size, step=0)
-#
+initial_learning_rate = 0.001
+decay_steps = 1000
+decay_rate = 0.95
+
+lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate=initial_learning_rate,
+    decay_steps=decay_steps,
+    decay_rate=decay_rate,
+    staircase=True
+)
+
 model.compile(
-    optimizer='Adam',
+    optimizer=keras.optimizers.Adam(learning_rate=lr_schedule),
     loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
     metrics=['accuracy']
 )
@@ -100,19 +113,3 @@ history = model.fit(
     callbacks=[tb_callback, cm_callback],
     verbose=1
 )
-
-loss, accuracy = model.evaluate(val_ds)
-
-plt.plot(history.history['accuracy'], label='Training Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend()
-plt.show()
-
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
-plt.show()
