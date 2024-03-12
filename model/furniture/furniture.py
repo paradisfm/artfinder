@@ -3,8 +3,7 @@ import cm
 import tensorflow as tf
 from keras import layers
 from keras.layers import Conv2D, GlobalMaxPooling2D, Activation, MaxPooling2D, Dropout, Flatten, Dense
-from keras.applications import VGG16
-import matplotlib.pyplot as plt
+from keras.applications import VGG19
 
 tf.experimental.numpy.experimental_enable_numpy_behavior()
 tf.compat.v1.enable_eager_execution()
@@ -49,7 +48,7 @@ train_ds = train_ds.prefetch(buffer_size=AUTOTUNE)
 val_ds = val_ds.map(preprocess_data, num_parallel_calls=AUTOTUNE)
 val_ds = val_ds.prefetch(buffer_size=AUTOTUNE)
 
-base_model = VGG16(weights='imagenet', include_top=False, input_shape=(img_h, img_w, 3))
+base_model = VGG19(weights='imagenet', include_top=False, input_shape=(img_h, img_w, 3))
 base_model.trainable = False
 
 model = keras.Sequential([
